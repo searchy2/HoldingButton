@@ -19,6 +19,8 @@ package com.dewarder.holdingbuttonsample;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.support.v7.app.AppCompatActivity;
 import android.view.View;
 import android.view.ViewPropertyAnimator;
@@ -28,11 +30,11 @@ import android.widget.Toast;
 
 import com.dewarder.holdinglibrary.HoldingButtonLayout;
 import com.dewarder.holdinglibrary.HoldingButtonLayoutListener;
-import com.dewarder.holdinglibrary.HoldingButtonTouchListener;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.Random;
 
 public class MainActivity extends AppCompatActivity implements HoldingButtonLayoutListener {
 
@@ -58,14 +60,27 @@ public class MainActivity extends AppCompatActivity implements HoldingButtonLayo
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        mHoldingButtonLayout = (HoldingButtonLayout) findViewById(R.id.input_holder);
+        mHoldingButtonLayout = findViewById(R.id.input_holder);
         mHoldingButtonLayout.addListener(this);
 
-        mTime = (TextView) findViewById(R.id.time);
-        mInput = (EditText) findViewById(R.id.input);
+        mTime = findViewById(R.id.time);
+        mInput = findViewById(R.id.input);
         mSlideToCancel = findViewById(R.id.slide_to_cancel);
 
         mAnimationDuration = getResources().getInteger(android.R.integer.config_shortAnimTime);
+    }
+
+    private Random random = new Random();
+    private Handler handler = new Handler(Looper.getMainLooper());
+
+    private void postAmplitude() {
+        mHoldingButtonLayout.setAmplitude(random.nextFloat());
+        handler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                postAmplitude();
+            }
+        }, 200);
     }
 
     @Override
@@ -100,6 +115,7 @@ public class MainActivity extends AppCompatActivity implements HoldingButtonLayo
     public void onExpand() {
         mStartTime = System.currentTimeMillis();
         invalidateTimer();
+       // postAmplitude();
     }
 
     @Override

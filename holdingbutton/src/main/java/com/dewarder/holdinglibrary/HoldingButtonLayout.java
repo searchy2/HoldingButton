@@ -17,12 +17,11 @@
 package com.dewarder.holdinglibrary;
 
 import android.annotation.TargetApi;
-import android.app.Activity;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Rect;
+import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.support.annotation.AttrRes;
 import android.support.annotation.ColorInt;
@@ -34,33 +33,41 @@ import android.support.annotation.StyleRes;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
 import java.util.ArrayList;
 import java.util.List;
 
+@SuppressWarnings("unused")
 public class HoldingButtonLayout extends FrameLayout {
 
-    private int mHoldingViewId = -1;
+    private static final float DEFAULT_CANCEL_OFFSET = 0.3f;
+    private static final float COLLAPSING_SCALE_Y_VALUE_START = 0.8f;
+    private static final float COLLAPSING_SCALE_Y_VALUE_END = 1f;
+    private static final float COLLAPSING_ALPHA_VALUE_START = 0f;
+    private static final float COLLAPSING_ALPHA_VALUE_END = 1f;
+
+    private int mHoldingViewId = NO_ID;
     private View mHoldingView;
     private Rect mHoldingViewRect = new Rect();
-    private float mCancelOffset = 0.3f;
+    private float mCancelOffset = DEFAULT_CANCEL_OFFSET;
     private float mDeltaX;
 
-    private View mHoldingCircle;
-    private HoldingDrawable mHoldingDrawable;
+    private HoldingButtonDrawer mHoldingButtonDrawer = new PopupWindowHoldingButtonDrawer();
+    private HoldingButton mHoldingButton;
     private int[] mOffset = new int[2];
-    private int[] mViewLocation = new int[2];
     private int[] mHoldingViewLocation = new int[2];
 
-    private Direction mDirection = Direction.START;
+    private LayoutDirection mLayoutDirection = LayoutDirection.LTR;
+    private Direction mDirection;
     private boolean mAnimateHoldingView = true;
     private boolean mButtonEnabled = true;
     private boolean mIsCancel = false;
     private boolean mIsExpanded = false;
 
-    private HoldingButtonTouchListener mTouchListener = new SimpleHoldingButtonTouchListener();
+    private int mCollapsingAnimationDuration;
+
+    private HoldingButtonTouchListener mTouchListener = new NoopHoldingButtonTouchListener();
     private final DrawableListener mDrawableListener = new DrawableListener();
     private final List<HoldingButtonLayoutListener> mListeners = new ArrayList<>();
 
@@ -95,21 +102,24 @@ public class HoldingButtonLayout extends FrameLayout {
     }
 
     private void init(Context context, AttributeSet attrs, @AttrRes int defStyleAttr, @StyleRes int defStyleRes) {
-        mHoldingDrawable = new HoldingDrawable();
-        mHoldingDrawable.setListener(mDrawableListener);
+        mCollapsingAnimationDuration = getResources().getInteger(android.R.integer.config_shortAnimTime);
+
+        mHoldingButton = new HoldingButton(context);
+        mHoldingButton.setListener(mDrawableListener);
+        mLayoutDirection = DirectionHelper.resolveLayoutDirection(this);
 
         if (attrs != null) {
             TypedArray array = context.getTheme().obtainStyledAttributes(attrs,
-                                                                         R.styleable.HoldingButtonLayout,
-                                                                         defStyleAttr,
-                                                                         defStyleRes);
+                    R.styleable.HoldingButtonLayout,
+                    defStyleAttr,
+                    defStyleRes);
 
             if (array.hasValue(R.styleable.HoldingButtonLayout_hbl_enabled)) {
                 setButtonEnabled(array.getBoolean(R.styleable.HoldingButtonLayout_hbl_enabled, true));
             }
 
             if (array.hasValue(R.styleable.HoldingButtonLayout_hbl_radius)) {
-                mHoldingDrawable.setRadius(array.getDimensionPixelSize(R.styleable.HoldingButtonLayout_hbl_radius, 280));
+                mHoldingButton.setRadius(array.getDimensionPixelSize(R.styleable.HoldingButtonLayout_hbl_radius, 280));
             }
 
             if (array.hasValue(R.styleable.HoldingButtonLayout_hbl_icon)) {
@@ -117,8 +127,7 @@ public class HoldingButtonLayout extends FrameLayout {
             }
 
             if (array.hasValue(R.styleable.HoldingButtonLayout_hbl_cancel_icon)) {
-                int drawableRes = array.getResourceId(R.styleable.HoldingButtonLayout_hbl_cancel_icon, 0);
-                mHoldingDrawable.setCancelIcon(BitmapFactory.decodeResource(getResources(), drawableRes));
+                setCancelIcon(array.getResourceId(R.styleable.HoldingButtonLayout_hbl_cancel_icon, 0));
             }
 
             if (array.hasValue(R.styleable.HoldingButtonLayout_hbl_offset_x)) {
@@ -130,7 +139,7 @@ public class HoldingButtonLayout extends FrameLayout {
             }
 
             if (array.hasValue(R.styleable.HoldingButtonLayout_hbl_holding_view)) {
-                mHoldingViewId = array.getResourceId(R.styleable.HoldingButtonLayout_hbl_holding_view, -1);
+                mHoldingViewId = array.getResourceId(R.styleable.HoldingButtonLayout_hbl_holding_view, NO_ID);
             }
 
             if (array.hasValue(R.styleable.HoldingButtonLayout_hbl_animate_holding_view)) {
@@ -138,15 +147,15 @@ public class HoldingButtonLayout extends FrameLayout {
             }
 
             if (array.hasValue(R.styleable.HoldingButtonLayout_hbl_color)) {
-                mHoldingDrawable.setColor(array.getColor(R.styleable.HoldingButtonLayout_hbl_color, 0));
+                mHoldingButton.setColor(array.getColor(R.styleable.HoldingButtonLayout_hbl_color, 0));
             }
 
             if (array.hasValue(R.styleable.HoldingButtonLayout_hbl_cancel_color)) {
-                mHoldingDrawable.setCancelColor(array.getColor(R.styleable.HoldingButtonLayout_hbl_cancel_color, 0));
+                mHoldingButton.setCancelColor(array.getColor(R.styleable.HoldingButtonLayout_hbl_cancel_color, 0));
             }
 
-            if (array.hasValue(R.styleable.HoldingButtonLayout_hbl_second_radius)) {
-                mHoldingDrawable.setSecondRadius(array.getDimension(R.styleable.HoldingButtonLayout_hbl_second_radius, 0));
+            if (array.hasValue(R.styleable.HoldingButtonLayout_hbl_amplitude_radius)) {
+                mHoldingButton.setAmplitudeRadius(array.getDimensionPixelOffset(R.styleable.HoldingButtonLayout_hbl_amplitude_radius, 0));
             }
 
             if (array.hasValue(R.styleable.HoldingButtonLayout_hbl_second_alpha)) {
@@ -154,7 +163,7 @@ public class HoldingButtonLayout extends FrameLayout {
                 if (alphaMultiplier < 0 && alphaMultiplier > 1) {
                     throw new IllegalStateException("Second alpha value must be between 0 and 1");
                 }
-                mHoldingDrawable.setSecondAlpha((int) (255 * alphaMultiplier));
+                mHoldingButton.setSecondAlpha((int) (255 * alphaMultiplier));
             }
 
             if (array.hasValue(R.styleable.HoldingButtonLayout_hbl_cancel_offset)) {
@@ -166,11 +175,17 @@ public class HoldingButtonLayout extends FrameLayout {
             }
 
             if (array.hasValue(R.styleable.HoldingButtonLayout_hbl_direction)) {
-                int flag = array.getInt(R.styleable.HoldingButtonLayout_hbl_direction, 0);
-                mDirection = Direction.fromFlag(flag);
+                int directionFlag = array.getInt(R.styleable.HoldingButtonLayout_hbl_direction, -1);
+                if (directionFlag != -1) {
+                    mDirection = DirectionHelper.adaptSlidingDirection(this, Direction.fromFlag(directionFlag));
+                }
             }
 
             array.recycle();
+        }
+
+        if (mDirection == null) {
+            mDirection = DirectionHelper.resolveDefaultSlidingDirection(this);
         }
     }
 
@@ -193,21 +208,20 @@ public class HoldingButtonLayout extends FrameLayout {
         switch (action) {
             case MotionEvent.ACTION_DOWN: {
                 if (isButtonEnabled() && isViewTouched(mHoldingView, event) && shouldInterceptAnimation()) {
-                    mHoldingView.getLocationInWindow(mHoldingViewLocation);
-                    getLocationInWindow(mViewLocation);
+                    mHoldingButtonDrawer.onAttach(
+                            mHoldingView,
+                            mHoldingButton,
+                            this
+                    );
 
-                    int centerX = mHoldingViewLocation[0] + mHoldingView.getWidth() / 2;
-                    int centerY = mHoldingViewLocation[1] + mHoldingView.getHeight() / 2;
+                    mHoldingButtonDrawer.onActionDown(
+                            event,
+                            mLayoutDirection,
+                            mDirection.getOffsetX(mOffset[0]),
+                            mOffset[1]
+                    );
 
-                    float translationX = centerX - mHoldingCircle.getWidth() / 2f + mDirection.getOffsetX(mOffset[0]);
-                    float translationY = centerY - mHoldingCircle.getHeight() / 2f + mOffset[1];
-
-                    mHoldingCircle.setTranslationX(translationX);
-                    mHoldingCircle.setTranslationY(translationY);
-
-                    mDeltaX = event.getRawX() - centerX - mDirection.getOffsetX(mOffset[0]);
-
-                    mHoldingDrawable.expand();
+                    mHoldingButton.expand();
                     mIsCancel = false;
                     mIsExpanded = true;
                     return true;
@@ -216,14 +230,16 @@ public class HoldingButtonLayout extends FrameLayout {
 
             case MotionEvent.ACTION_MOVE: {
                 if (mIsExpanded) {
-                    float circleCenterX = mHoldingCircle.getWidth() / 2;
-                    float x = event.getRawX() - mDeltaX - circleCenterX;
-                    float slideOffset = mDirection.getSlideOffset(x, circleCenterX, mViewLocation, getWidth(), mHoldingViewLocation, mHoldingView.getWidth(), mOffset);
+                    float slideOffset = mHoldingButtonDrawer.onActionMove(
+                            event,
+                            mDirection,
+                            mOffset[0],
+                            mOffset[1]
+                    );
 
                     if (slideOffset >= 0 && slideOffset <= 1) {
-                        mHoldingCircle.setX(x);
                         mIsCancel = slideOffset >= mCancelOffset;
-                        mHoldingDrawable.setCancel(mIsCancel);
+                        mHoldingButton.setCancel(mIsCancel);
                         notifyOnOffsetChanged(slideOffset, mIsCancel);
                     }
                     return true;
@@ -241,48 +257,17 @@ public class HoldingButtonLayout extends FrameLayout {
         return false;
     }
 
-    @Override
-    protected void onAttachedToWindow() {
-        super.onAttachedToWindow();
-        getDecorView().addView(mHoldingCircle, mHoldingDrawable.getIntrinsicWidth(), mHoldingDrawable.getIntrinsicHeight());
-    }
 
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
-        if (mHoldingView == null && mHoldingViewId != -1) {
+        if (mHoldingView == null && mHoldingViewId != NO_ID) {
             mHoldingView = findViewById(mHoldingViewId);
         }
 
         if (mHoldingView == null) {
             throw new IllegalStateException("Holding view doesn't set. Call setHoldingView before inflate");
         }
-
-        mHoldingCircle = new View(getContext());
-        mHoldingCircle.setVisibility(INVISIBLE);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-            mHoldingCircle.setBackground(mHoldingDrawable);
-        } else {
-            mHoldingCircle.setBackgroundDrawable(mHoldingDrawable);
-        }
-    }
-
-    protected ViewGroup getDecorView() {
-        //Try to fetch DecorView from context
-        if (getContext() instanceof Activity) {
-            View decor = ((Activity) getContext()).getWindow().getDecorView();
-
-            if (decor instanceof ViewGroup) {
-                return (ViewGroup) decor;
-            }
-        }
-
-        //Try to fetch DecorView from parents
-        ViewGroup view = this;
-        while (view.getParent() != null && view.getParent() instanceof ViewGroup) {
-            view = (ViewGroup) view.getParent();
-        }
-        return view;
     }
 
     public void setTouchListener(@NonNull HoldingButtonTouchListener listener) {
@@ -317,7 +302,7 @@ public class HoldingButtonLayout extends FrameLayout {
 
     public void submit() {
         if (mIsExpanded) {
-            mHoldingDrawable.collapse();
+            mHoldingButton.collapse();
             mIsExpanded = false;
         }
     }
@@ -332,20 +317,20 @@ public class HoldingButtonLayout extends FrameLayout {
 
     @ColorInt
     public int getColor() {
-        return mHoldingDrawable.getColor();
+        return mHoldingButton.getColor();
     }
 
     public void setColor(@ColorInt int color) {
-        mHoldingDrawable.setColor(color);
+        mHoldingButton.setColor(color);
     }
 
     @ColorInt
     public int getCancelColor() {
-        return mHoldingDrawable.getCancelColor();
+        return mHoldingButton.getCancelColor();
     }
 
     public void setCancelColor(@ColorInt int color) {
-        mHoldingDrawable.setCancelColor(color);
+        mHoldingButton.setCancelColor(color);
     }
 
     @FloatRange(from = 0, to = 1)
@@ -358,27 +343,51 @@ public class HoldingButtonLayout extends FrameLayout {
     }
 
     public float getRadius() {
-        return mHoldingDrawable.getRadius();
+        return mHoldingButton.getRadius();
     }
 
-    public void setRadius(float radius) {
-        mHoldingDrawable.setRadius(radius);
+    public void setRadius(int radius) {
+        mHoldingButton.setRadius(radius);
     }
 
-    public float getSecondRadius() {
-        return mHoldingDrawable.getSecondRadius();
+    public float getAmplitudeRadius() {
+        return mHoldingButton.getAmplitudeRadius();
     }
 
-    public void setSecondRadius(float radius) {
-        mHoldingDrawable.setSecondRadius(radius);
+    public void setAmplitudeRadius(int radius) {
+        mHoldingButton.setAmplitudeRadius(radius);
+    }
+
+    public void setAmplitude(@FloatRange(from = 0f, to = 1f) float amplitude) {
+        setAmplitude(amplitude, true);
+    }
+
+    public void setAmplitude(@FloatRange(from = 0f, to = 1f) float amplitude, boolean animate) {
+        mHoldingButton.setAmplitude(amplitude, animate);
     }
 
     public void setIcon(@DrawableRes int drawableRes) {
-        setIcon(BitmapFactory.decodeResource(getResources(), drawableRes));
+        setIcon(DrawableHelper.getBitmap(getContext(), drawableRes));
     }
 
-    public void setIcon(Bitmap bitmap) {
-        mHoldingDrawable.setIcon(bitmap);
+    public void setIcon(Drawable drawable) {
+        setIcon(DrawableHelper.getBitmap(drawable));
+    }
+
+    public void setIcon(@Nullable Bitmap bitmap) {
+        mHoldingButton.setIcon(bitmap);
+    }
+
+    public void setCancelIcon(@DrawableRes int drawableRes) {
+        setCancelIcon(DrawableHelper.getBitmap(getContext(), drawableRes));
+    }
+
+    public void setCancelIcon(@Nullable Drawable drawable) {
+        setCancelIcon(DrawableHelper.getBitmap(drawable));
+    }
+
+    public void setCancelIcon(@Nullable Bitmap bitmap) {
+        mHoldingButton.setCancelIcon(bitmap);
     }
 
     public View getHoldingView() {
@@ -394,7 +403,7 @@ public class HoldingButtonLayout extends FrameLayout {
     }
 
     public void setDirection(Direction direction) {
-        mDirection = direction;
+        mDirection = DirectionHelper.adaptSlidingDirection(this, direction);
     }
 
     public void setAnimateHoldingView(boolean animate) {
@@ -451,7 +460,7 @@ public class HoldingButtonLayout extends FrameLayout {
         }
     }
 
-    private class SimpleHoldingButtonTouchListener implements HoldingButtonTouchListener {
+    private static class NoopHoldingButtonTouchListener implements HoldingButtonTouchListener {
 
         @Override
         public boolean onHoldingViewTouched() {
@@ -464,8 +473,7 @@ public class HoldingButtonLayout extends FrameLayout {
         @Override
         public void onBeforeExpand() {
             notifyOnBeforeExpand();
-            mHoldingDrawable.reset();
-            mHoldingCircle.setVisibility(VISIBLE);
+            mHoldingButton.reset();
 
             if (mAnimateHoldingView) {
                 mHoldingView.setVisibility(INVISIBLE);
@@ -485,48 +493,113 @@ public class HoldingButtonLayout extends FrameLayout {
         @Override
         public void onCollapse() {
             notifyOnCollapse(mIsCancel);
-            mHoldingCircle.setVisibility(GONE);
+            mHoldingButtonDrawer.onDispose(
+                    mHoldingView,
+                    mHoldingButton,
+                    HoldingButtonLayout.this
+            );
 
             if (mAnimateHoldingView) {
-                mHoldingView.setAlpha(0f);
-                mHoldingView.setScaleY(0.8f);
+                mHoldingView.setAlpha(COLLAPSING_ALPHA_VALUE_START);
+                mHoldingView.setScaleY(COLLAPSING_SCALE_Y_VALUE_START);
                 mHoldingView.setVisibility(VISIBLE);
                 mHoldingView.animate()
-                        .alpha(1f)
-                        .scaleY(1f)
-                        .setDuration(getResources().getInteger(android.R.integer.config_shortAnimTime))
+                        .alpha(COLLAPSING_ALPHA_VALUE_END)
+                        .scaleY(COLLAPSING_SCALE_Y_VALUE_END)
+                        .setDuration(mCollapsingAnimationDuration)
                         .start();
             }
         }
     }
 
-    public enum Direction {
+    public enum LayoutDirection {
+        LTR {
+            @Override
+            public float calculateTranslationX(int layoutWidth, int viewCenterX, int circleCenterX, int offsetX) {
+                return viewCenterX - circleCenterX + offsetX;
+            }
+        },
+        RTL {
+            @Override
+            public float calculateTranslationX(int layoutWidth, int viewCenterX, int circleCenterX, int offsetX) {
+                return -layoutWidth + viewCenterX + circleCenterX + offsetX;
+            }
+        };
 
+        public abstract float calculateTranslationX(
+                int layoutWidth, int viewCenterX, int circleCenterX, int offsetX);
+    }
+
+    public enum Direction {
         START(0) {
             @Override
             int getOffsetX(int offsetX) {
-                return offsetX;
+                return LEFT.getOffsetX(offsetX);
             }
 
             @Override
-            float getSlideOffset(float x, float circleCenterX, int[] viewLocation, int viewWidth, int[] holdingViewLocation, int holdingViewWidth, int[] offset) {
-                float holdingViewCenterX = holdingViewLocation[0] + holdingViewWidth / 2;
-                float minX = viewLocation[0] + circleCenterX;
-                return (x + circleCenterX - holdingViewCenterX - offset[0]) / (minX - holdingViewCenterX);
+            float getSlideOffset(float x, float circleCenterX, int[] viewLocation, int viewWidth, int[] holdingViewLocation, int holdingViewWidth, int offsetX) {
+                return LEFT.getSlideOffset(x, circleCenterX, viewLocation, viewWidth, holdingViewLocation, holdingViewWidth, offsetX);
+            }
+
+            @Override
+            Direction toRtl() {
+                return END;
             }
         },
 
         END(1) {
             @Override
             int getOffsetX(int offsetX) {
+                return RIGHT.getOffsetX(offsetX);
+            }
+
+            @Override
+            float getSlideOffset(float x, float circleCenterX, int[] viewLocation, int viewWidth, int[] holdingViewLocation, int holdingViewWidth, int offsetX) {
+                return RIGHT.getSlideOffset(x, circleCenterX, viewLocation, viewWidth, holdingViewLocation, holdingViewWidth, offsetX);
+            }
+
+            @Override
+            Direction toRtl() {
+                return START;
+            }
+        },
+
+        LEFT(2) {
+            @Override
+            int getOffsetX(int offsetX) {
+                return offsetX;
+            }
+
+            @Override
+            float getSlideOffset(float x, float circleCenterX, int[] viewLocation, int viewWidth, int[] holdingViewLocation, int holdingViewWidth, int offsetX) {
+                float holdingViewCenterX = holdingViewLocation[0] + holdingViewWidth / 2;
+                float minX = viewLocation[0] + circleCenterX;
+                return (x + circleCenterX - holdingViewCenterX - offsetX) / (minX - holdingViewCenterX);
+            }
+
+            @Override
+            Direction toRtl() {
+                return LEFT;
+            }
+        },
+
+        RIGHT(3) {
+            @Override
+            int getOffsetX(int offsetX) {
                 return -offsetX;
             }
 
             @Override
-            float getSlideOffset(float x, float circleCenterX, int[] viewLocation, int viewWidth, int[] holdingViewLocation, int holdingViewWidth, int[] offset) {
+            float getSlideOffset(float x, float circleCenterX, int[] viewLocation, int viewWidth, int[] holdingViewLocation, int holdingViewWidth, int offsetX) {
                 float holdingViewCenterX = holdingViewLocation[0] + holdingViewWidth / 2;
                 float maxX = viewLocation[0] + viewWidth - circleCenterX;
-                return (x + circleCenterX - holdingViewCenterX + offset[0]) / (maxX - holdingViewCenterX);
+                return (x + circleCenterX - holdingViewCenterX + offsetX) / (maxX - holdingViewCenterX);
+            }
+
+            @Override
+            Direction toRtl() {
+                return RIGHT;
             }
         };
 
@@ -538,9 +611,11 @@ public class HoldingButtonLayout extends FrameLayout {
 
         abstract int getOffsetX(int offsetX);
 
-        abstract float getSlideOffset(float x, float circleCenterX, int[] viewLocation, int viewWidth, int[] holdingViewLocation, int holdingViewWidth, int[] offset);
+        abstract float getSlideOffset(float x, float circleCenterX, int[] viewLocation, int viewWidth, int[] holdingViewLocation, int holdingViewWidth, int offsetX);
 
-        public static Direction fromFlag(int flag) {
+        abstract Direction toRtl();
+
+        static Direction fromFlag(int flag) {
             for (Direction direction : values()) {
                 if (direction.mFlag == flag) {
                     return direction;

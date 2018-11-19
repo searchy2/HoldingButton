@@ -1,19 +1,16 @@
 apply plugin: 'com.android.application'
 
 android {
-    compileSdkVersion 25
-    buildToolsVersion "25.0.2"
+    compileSdkVersion sdk_version
 
     defaultConfig {
         applicationId "com.dewarder.holdingbuttonsample"
-        minSdkVersion 15
-        targetSdkVersion 25
+        minSdkVersion min_sdk_version
+        targetSdkVersion sdk_version
         versionCode 1
         versionName "1.0"
-
-        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
-
     }
+
     buildTypes {
         release {
             minifyEnabled false
@@ -23,7 +20,6 @@ android {
 }
 
 dependencies {
-    compile fileTree(dir: 'libs', include: ['*.jar'])
-    compile project(":holdingbutton")
-    compile 'com.android.support:appcompat-v7:25.2.0'
+    implementation project(":holdingbutton")
+    implementation dep.supportAppCompat
 }

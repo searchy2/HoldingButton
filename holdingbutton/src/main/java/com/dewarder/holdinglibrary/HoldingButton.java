@@ -19,34 +19,39 @@ package com.dewarder.holdinglibrary;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.ColorFilter;
 import android.graphics.Matrix;
 import android.graphics.Paint;
-import android.graphics.PixelFormat;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.Shader;
-import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.support.annotation.ColorInt;
+import android.support.annotation.FloatRange;
 import android.support.annotation.IntRange;
-import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.annotation.Px;
+import android.support.annotation.RequiresApi;
+import android.util.AttributeSet;
+import android.view.View;
 import android.view.animation.AccelerateInterpolator;
 
-public class HoldingDrawable extends Drawable {
+class HoldingButton extends View {
 
     private static final float MIN_EXPANDED_RADIUS_MULTIPLIER = 0.3f;
     private static final long DEFAULT_ANIMATION_DURATION_EXPAND = 150L;
     private static final long DEFAULT_ANIMATION_DURATION_COLLAPSE = 150L;
     private static final long DEFAULT_ANIMATION_DURATION_CANCEL = 200L;
     private static final long DEFAULT_ANIMATION_DURATION_ICON = 200L;
+    private static final long DEFAULT_ANIMATION_DURATION_AMPLITUDE = 200L;
 
     private Paint mPaint;
     private Paint mSecondPaint;
+    private Paint mShadowPaint;
 
     private int mIconWidth;
     private int mIconHeight;
@@ -66,9 +71,11 @@ public class HoldingDrawable extends Drawable {
     private ValueAnimator mAnimator;
     private ValueAnimator mCancelAnimator;
     private ValueAnimator mIconAnimator;
+    private ValueAnimator mAmplitudeAnimator;
 
-    private float mRadius = 120f;
-    private float mSecondRadius = 20f;
+    private int mRadius = 120;
+    private int mAmplitudeRadius = 20;
+    private float mAmplitude = 0f;
     private float[] mIconScaleFactor = {1f};
     private float[] mExpandedScaleFactor = {0f};
 
@@ -82,70 +89,77 @@ public class HoldingDrawable extends Drawable {
         mPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         mPaint.setColor(mDefaultColor);
 
+        mShadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mShadowPaint.setShadowLayer(16, 0, 4, 0x33000000);
+
         mSecondPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         mSecondPaint.setColor(mDefaultColor);
         mSecondPaint.setAlpha(mSecondAlpha);
     }
 
+    public HoldingButton(Context context) {
+        super(context);
+    }
+
+    public HoldingButton(Context context, @Nullable AttributeSet attrs) {
+        super(context, attrs);
+    }
+
+    public HoldingButton(Context context, @Nullable AttributeSet attrs, int defStyleAttr) {
+        super(context, attrs, defStyleAttr);
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    public HoldingButton(Context context,
+                         @Nullable AttributeSet attrs,
+                         int defStyleAttr,
+                         int defStyleRes) {
+
+        super(context, attrs, defStyleAttr, defStyleRes);
+    }
+
     @Override
-    public void draw(@NonNull Canvas canvas) {
+    protected void onDraw(Canvas canvas) {
+        if (!mIsExpanded) {
+            return;
+        }
+
         float centerX = canvas.getWidth() / 2f;
         float centerY = canvas.getHeight() / 2f;
-        if (mIsExpanded) {
-            if (mSecondRadius > 0) {
-                canvas.drawCircle(centerX, centerY, mRadius + mSecondRadius, mSecondPaint);
-            }
 
-            float currentRadius = mRadius * (MIN_EXPANDED_RADIUS_MULTIPLIER + (1 - MIN_EXPANDED_RADIUS_MULTIPLIER) * mExpandedScaleFactor[0]);
-            canvas.drawCircle(centerX, centerY, currentRadius, mPaint);
-
-            if (mIconPaint != null) {
-                Paint iconPaint;
-                if (mIsCancel && mCancelIconPaint != null) {
-                    iconPaint = mCancelIconPaint;
-                    invalidateMatrix(mCancelIconMatrix, centerX, centerY, mCancelIconWidth, mCancelIconHeight);
-                    mCancelIconShader.setLocalMatrix(mCancelIconMatrix);
-                } else {
-                    iconPaint = mIconPaint;
-                    invalidateMatrix(mIconMatrix, centerX, centerY, mIconWidth, mIconHeight);
-                    mIconShader.setLocalMatrix(mIconMatrix);
-                }
-
-                canvas.drawRect(
-                        centerX - mIconWidth / 2,
-                        centerY - mIconHeight / 2,
-                        centerX + mIconWidth / 2,
-                        centerY + mIconHeight / 2,
-                        iconPaint);
-            }
+        if (mAmplitudeRadius > 0) {
+            canvas.drawCircle(
+                    centerX,
+                    centerY,
+                    mRadius * mExpandedScaleFactor[0] + mAmplitudeRadius * mAmplitude,
+                    mSecondPaint
+            );
         }
-    }
 
-    @Override
-    public void setAlpha(@IntRange(from = 0, to = 255) int alpha) {
-        mPaint.setAlpha(alpha);
-        invalidateSelf();
-    }
+        float currentRadius = mRadius * (MIN_EXPANDED_RADIUS_MULTIPLIER + (1 - MIN_EXPANDED_RADIUS_MULTIPLIER) * mExpandedScaleFactor[0]);
+        canvas.drawCircle(centerX, centerY, currentRadius, mShadowPaint);
+        canvas.drawCircle(centerX, centerY, currentRadius, mPaint);
 
-    @Override
-    public void setColorFilter(@Nullable ColorFilter colorFilter) {
-        mPaint.setColorFilter(colorFilter);
-        invalidateSelf();
-    }
+        if (mIconPaint != null) {
+            Paint iconPaint;
+            if (mIsCancel && mCancelIconPaint != null) {
+                iconPaint = mCancelIconPaint;
+                invalidateMatrix(mCancelIconMatrix, centerX, centerY, mCancelIconWidth, mCancelIconHeight);
+                mCancelIconShader.setLocalMatrix(mCancelIconMatrix);
+            } else {
+                iconPaint = mIconPaint;
+                invalidateMatrix(mIconMatrix, centerX, centerY, mIconWidth, mIconHeight);
+                mIconShader.setLocalMatrix(mIconMatrix);
+            }
 
-    @Override
-    public int getOpacity() {
-        return PixelFormat.OPAQUE;
-    }
-
-    @Override
-    public int getIntrinsicHeight() {
-        return (int) (mRadius * 2 + mSecondRadius * 2);
-    }
-
-    @Override
-    public int getIntrinsicWidth() {
-        return (int) (mRadius * 2 + mSecondRadius * 2);
+            canvas.drawRect(
+                    centerX - mIconWidth / 2,
+                    centerY - mIconHeight / 2,
+                    centerX + mIconWidth / 2,
+                    centerY + mIconHeight / 2,
+                    iconPaint
+            );
+        }
     }
 
     public void expand() {
@@ -192,12 +206,13 @@ public class HoldingDrawable extends Drawable {
         }
     }
 
-    public void setRadius(float radius) {
+    public void setRadius(@IntRange(from = 0) int radius) {
         mRadius = radius;
-        invalidateSelf();
+        invalidate();
     }
 
-    public float getRadius() {
+    @IntRange(from = 0)
+    public int getRadius() {
         return mRadius;
     }
 
@@ -213,7 +228,7 @@ public class HoldingDrawable extends Drawable {
             mSecondPaint.setColor(color);
             mSecondPaint.setAlpha(mSecondAlpha);
         }
-        invalidateSelf();
+        invalidate();
     }
 
     @ColorInt
@@ -221,15 +236,15 @@ public class HoldingDrawable extends Drawable {
         return mCancelColor;
     }
 
-    public void setCancelColor(int color) {
+    public void setCancelColor(@ColorInt int color) {
         mCancelColor = color;
         if (mIsCancel) {
             mPaint.setColor(color);
         }
-        invalidateSelf();
+        invalidate();
     }
 
-    public void setIcon(Bitmap bitmap) {
+    public void setIcon(@Nullable Bitmap bitmap) {
         if (bitmap != null) {
             mIconWidth = bitmap.getWidth();
             mIconHeight = bitmap.getHeight();
@@ -239,7 +254,7 @@ public class HoldingDrawable extends Drawable {
             mIconPaint.setShader(mIconShader);
             mIconPaint.setColorFilter(new PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN));
 
-            invalidateSelf();
+            invalidate();
         } else {
             mIconWidth = 0;
             mIconHeight = 0;
@@ -249,7 +264,7 @@ public class HoldingDrawable extends Drawable {
         }
     }
 
-    public void setCancelIcon(Bitmap bitmap) {
+    public void setCancelIcon(@Nullable Bitmap bitmap) {
         if (bitmap != null) {
             mCancelIconWidth = bitmap.getWidth();
             mCancelIconHeight = bitmap.getHeight();
@@ -259,7 +274,7 @@ public class HoldingDrawable extends Drawable {
             mCancelIconPaint.setShader(mCancelIconShader);
             mCancelIconPaint.setColorFilter(new PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN));
 
-            invalidateSelf();
+            invalidate();
         } else {
             mCancelIconWidth = 0;
             mCancelIconHeight = 0;
@@ -275,16 +290,36 @@ public class HoldingDrawable extends Drawable {
 
     public void setSecondAlpha(@IntRange(from = 0, to = 255) int alpha) {
         mSecondAlpha = alpha;
-        invalidateSelf();
+        invalidate();
     }
 
-    public float getSecondRadius() {
-        return mSecondRadius;
+    @IntRange(from = 0)
+    public int getAmplitudeRadius() {
+        return mAmplitudeRadius;
     }
 
-    public void setSecondRadius(float radius) {
-        mSecondRadius = radius;
-        invalidateSelf();
+    public void setAmplitudeRadius(@IntRange(from = 0) int radius) {
+        mAmplitudeRadius = radius;
+    }
+
+    public void setAmplitude(@FloatRange(from = 0f, to = 1f) float amplitude, boolean animate) {
+        if (mAmplitudeAnimator != null) {
+            mAmplitudeAnimator.cancel();
+            mAmplitudeAnimator = null;
+        }
+
+        if (animate) {
+            mAmplitudeAnimator = createAmplitudeAnimator(amplitude);
+            mAmplitudeAnimator.start();
+        } else {
+            mAmplitude = amplitude;
+            invalidate();
+        }
+    }
+
+    @Px
+    public int getTotalRadius() {
+        return (int) (mRadius + mAmplitudeRadius);
     }
 
     public void setListener(HoldingDrawableListener listener) {
@@ -308,7 +343,7 @@ public class HoldingDrawable extends Drawable {
             @Override
             public void onAnimationUpdate(ValueAnimator valueAnimator) {
                 mExpandedScaleFactor[0] = (float) valueAnimator.getAnimatedValue();
-                invalidateSelf();
+                invalidate();
             }
         });
         animator.addListener(new AnimatorListenerAdapter() {
@@ -328,7 +363,7 @@ public class HoldingDrawable extends Drawable {
             @Override
             public void onAnimationUpdate(ValueAnimator valueAnimator) {
                 mExpandedScaleFactor[0] = (float) valueAnimator.getAnimatedValue();
-                invalidateSelf();
+                invalidate();
             }
         });
         animator.addListener(new AnimatorListenerAdapter() {
@@ -347,11 +382,11 @@ public class HoldingDrawable extends Drawable {
         animator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
             @Override
             public void onAnimationUpdate(ValueAnimator a) {
-                int color = ColorUtils.blend(from, to, (float) a.getAnimatedValue());
+                int color = ColorHelper.blend(from, to, (float) a.getAnimatedValue());
                 mPaint.setColor(color);
                 mSecondPaint.setColor(color);
                 mSecondPaint.setAlpha(mSecondAlpha);
-                invalidateSelf();
+                invalidate();
             }
         });
         animator.setDuration(DEFAULT_ANIMATION_DURATION_CANCEL);
@@ -367,6 +402,20 @@ public class HoldingDrawable extends Drawable {
             }
         });
         animator.setDuration(DEFAULT_ANIMATION_DURATION_ICON);
+        return animator;
+    }
+
+    private ValueAnimator createAmplitudeAnimator(float newValue) {
+        ValueAnimator animator = ValueAnimator.ofFloat(mAmplitude, newValue);
+        animator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(ValueAnimator valueAnimator) {
+                mAmplitude = (float) valueAnimator.getAnimatedValue();
+                invalidate();
+            }
+        });
+        int duration = (int) (DEFAULT_ANIMATION_DURATION_AMPLITUDE);
+        animator.setDuration(duration);
         return animator;
     }
 
